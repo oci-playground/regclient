@@ -1,3 +1,29 @@
+# OCI Playground
+
+[View diff](https://github.com/regclient/regclient/compare/main...oci-playground:main)
+
+To build:
+
+```
+make binaries
+```
+
+To test:
+
+```
+# Allow no-TLS for localhost registry
+bin/regctl registry set --tls disabled localhost:5000
+
+# Create an artifact with new manifest type (falling back to digest tag)
+echo "test artifact" | bin/regctl artifact put --refers localhost:5000/oci-playground/alpine:latest \
+  --annotation org.opencontainers.artifact.type=test \
+  --annotation org.example.greeting=hello \
+  --annotation org.example.location=world
+
+# List referrers
+bin/regctl artifact list localhost:5000/oci-playground/alpine:latest --format '{{ jsonPretty .}}' | jq
+```
+
 # regclient
 
 ![GitHub Workflow Status](https://img.shields.io/github/workflow/status/regclient/regclient/Go?label=Go%20build)
