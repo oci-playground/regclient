@@ -21,7 +21,8 @@ echo "test artifact" | bin/regctl artifact put --refers localhost:5000/oci-playg
   --annotation org.example.location=world
 
 # List referrers
-bin/regctl artifact list localhost:5000/oci-playground/alpine:latest --format '{{ jsonPretty .}}' | jq
+bin/regctl artifact list localhost:5000/oci-playground/alpine:latest \
+  --format '{{ jsonPretty .Manifest}}' | jq
 ```
 
 # regclient
