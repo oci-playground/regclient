@@ -44,6 +44,12 @@ func TestParseAuthHeader(t *testing.T) {
 			wantE: nil,
 		},
 		{
+			name:  "Basic unquoted token",
+			in:    `Basic realm=/`,
+			wantC: []Challenge{{authType: "basic", params: map[string]string{"realm": "/"}}},
+			wantE: nil,
+		},
+		{
 			name:  "Missing close quote",
 			in:    `Basic realm="GitHub Package Registry`,
 			wantC: []Challenge{},
@@ -374,7 +380,7 @@ func TestBearer(t *testing.T) {
 	tsURL, _ := url.Parse(ts.URL)
 	tsHost := tsURL.Host
 	bearer := NewBearerHandler(&http.Client{}, useragent, tsHost,
-		Cred{User: user, Password: pass},
+		func(h string) Cred { return Cred{User: user, Password: pass} },
 		&logrus.Logger{},
 	).(*BearerHandler)
 

@@ -99,9 +99,9 @@ func (m *docker2ManifestList) GetPlatformList() ([]*platform.Platform, error) {
 	return getPlatformList(dl)
 }
 
-func (m *docker2Manifest) GetRefers() (types.Descriptor, error) {
+func (m *docker2Manifest) GetRefers() (*types.Descriptor, error) {
 	if !m.manifSet {
-		return types.Descriptor{}, wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
+		return nil, wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
 	}
 	return m.Manifest.Refers, nil
 }
@@ -172,6 +172,14 @@ func (m *docker2Manifest) MarshalPretty() ([]byte, error) {
 			return []byte{}, err
 		}
 	}
+	if m.Refers != nil {
+		fmt.Fprintf(tw, "\t\n")
+		fmt.Fprintf(tw, "Refers:\t\n")
+		err := m.Refers.MarshalPrettyTW(tw, "  ")
+		if err != nil {
+			return []byte{}, err
+		}
+	}
 	tw.Flush()
 	return buf.Bytes(), nil
 }
@@ -237,6 +245,30 @@ func (m *docker2ManifestList) SetAnnotation(key, val string) error {
 	return m.updateDesc()
 }
 
+func (m *docker2Manifest) SetConfig(d types.Descriptor) error {
+	if !m.manifSet {
+		return fmt.Errorf("manifest is not set")
+	}
+	m.Config = d
+	return m.updateDesc()
+}
+
+func (m *docker2Manifest) SetLayers(dl []types.Descriptor) error {
+	if !m.manifSet {
+		return fmt.Errorf("manifest is not set")
+	}
+	m.Layers = dl
+	return m.updateDesc()
+}
+
+func (m *docker2ManifestList) SetManifestList(dl []types.Descriptor) error {
+	if !m.manifSet {
+		return fmt.Errorf("manifest is not set")
+	}
+	m.Manifests = dl
+	return m.updateDesc()
+}
+
 func (m *docker2Manifest) SetOrig(origIn interface{}) error {
 	orig, ok := origIn.(schema2.Manifest)
 	if !ok {
@@ -265,7 +297,7 @@ func (m *docker2ManifestList) SetOrig(origIn interface{}) error {
 	return m.updateDesc()
 }
 
-func (m *docker2Manifest) SetRefers(d types.Descriptor) error {
+func (m *docker2Manifest) SetRefers(d *types.Descriptor) error {
 	if !m.manifSet {
 		return wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
 	}

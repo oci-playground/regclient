@@ -145,15 +145,15 @@ func (m *oci1Manifest) MarshalJSON() ([]byte, error) {
 
 	return json.Marshal((m.Manifest))
 }
-func (m *oci1Manifest) GetRefers() (types.Descriptor, error) {
+func (m *oci1Manifest) GetRefers() (*types.Descriptor, error) {
 	if !m.manifSet {
-		return types.Descriptor{}, wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
+		return nil, wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
 	}
 	return m.Manifest.Refers, nil
 }
-func (m *oci1Artifact) GetRefers() (types.Descriptor, error) {
+func (m *oci1Artifact) GetRefers() (*types.Descriptor, error) {
 	if !m.manifSet {
-		return types.Descriptor{}, wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
+		return nil, wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
 	}
 	return m.ArtifactManifest.Refers, nil
 }
@@ -220,6 +220,14 @@ func (m *oci1Manifest) MarshalPretty() ([]byte, error) {
 	for _, d := range m.Layers {
 		fmt.Fprintf(tw, "\t\n")
 		err := d.MarshalPrettyTW(tw, "  ")
+		if err != nil {
+			return []byte{}, err
+		}
+	}
+	if m.Refers != nil {
+		fmt.Fprintf(tw, "\t\n")
+		fmt.Fprintf(tw, "Refers:\t\n")
+		err := m.Refers.MarshalPrettyTW(tw, "  ")
 		if err != nil {
 			return []byte{}, err
 		}
@@ -304,6 +312,14 @@ func (m *oci1Artifact) MarshalPretty() ([]byte, error) {
 			return []byte{}, err
 		}
 	}
+	if m.Refers != nil {
+		fmt.Fprintf(tw, "\t\n")
+		fmt.Fprintf(tw, "Refers:\t\n")
+		err := m.Refers.MarshalPrettyTW(tw, "  ")
+		if err != nil {
+			return []byte{}, err
+		}
+	}
 	tw.Flush()
 	return buf.Bytes(), nil
 }
@@ -339,6 +355,42 @@ func (m *oci1Artifact) SetAnnotation(key, val string) error {
 	return m.updateDesc()
 }
 
+func (m *oci1Artifact) SetConfig(d types.Descriptor) error {
+	return wraperr.New(fmt.Errorf("set config not available for media type %s", m.desc.MediaType), types.ErrUnsupportedMediaType)
+}
+
+func (m *oci1Manifest) SetConfig(d types.Descriptor) error {
+	if !m.manifSet {
+		return fmt.Errorf("manifest is not set")
+	}
+	m.Config = d
+	return m.updateDesc()
+}
+
+func (m *oci1Artifact) SetLayers(dl []types.Descriptor) error {
+	if !m.manifSet {
+		return fmt.Errorf("manifest is not set")
+	}
+	m.Blobs = dl
+	return m.updateDesc()
+}
+
+func (m *oci1Manifest) SetLayers(dl []types.Descriptor) error {
+	if !m.manifSet {
+		return fmt.Errorf("manifest is not set")
+	}
+	m.Layers = dl
+	return m.updateDesc()
+}
+
+func (m *oci1Index) SetManifestList(dl []types.Descriptor) error {
+	if !m.manifSet {
+		return fmt.Errorf("manifest is not set")
+	}
+	m.Manifests = dl
+	return m.updateDesc()
+}
+
 func (m *oci1Manifest) SetOrig(origIn interface{}) error {
 	orig, ok := origIn.(v1.Manifest)
 	if !ok {
@@ -369,14 +421,14 @@ func (m *oci1Index) SetOrig(origIn interface{}) error {
 	return m.updateDesc()
 }
 
-func (m *oci1Artifact) SetRefers(d types.Descriptor) error {
+func (m *oci1Artifact) SetRefers(d *types.Descriptor) error {
 	if !m.manifSet {
 		return wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
 	}
 	m.ArtifactManifest.Refers = d
 	return m.updateDesc()
 }
-func (m *oci1Manifest) SetRefers(d types.Descriptor) error {
+func (m *oci1Manifest) SetRefers(d *types.Descriptor) error {
 	if !m.manifSet {
 		return wraperr.New(fmt.Errorf("Manifest unavailable, perform a ManifestGet first"), types.ErrUnavailable)
 	}

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
 
 	"github.com/regclient/regclient"
+	"github.com/regclient/regclient/internal/diff"
 	"github.com/regclient/regclient/pkg/template"
 	"github.com/regclient/regclient/types"
 	"github.com/regclient/regclient/types/manifest"
@@ -34,6 +36,14 @@ layers (blobs) separately or not at all. See also the "tag delete" command.`,
 	Args:      cobra.ExactArgs(1),
 	ValidArgs: []string{}, // do not auto complete digests
 	RunE:      runManifestDelete,
+}
+
+var manifestDiffCmd = &cobra.Command{
+	Use:               "diff <image_ref> <image_ref>",
+	Short:             "compare manifests",
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: completeArgTag,
+	RunE:              runManifestDiff,
 }
 
 var manifestDigestCmd = &cobra.Command{
@@ -65,16 +75,23 @@ var manifestPutCmd = &cobra.Command{
 }
 
 var manifestOpts struct {
+	byDigest      bool
+	contentType   string
+	diffCtx       int
+	diffFullCtx   bool
+	forceTagDeref bool
+	format        string
+	formatPut     string
 	list          bool
 	platform      string
 	requireList   bool
-	format        string
-	contentType   string
-	forceTagDeref bool
 }
 
 func init() {
 	manifestDeleteCmd.Flags().BoolVarP(&manifestOpts.forceTagDeref, "force-tag-dereference", "", false, "Dereference the a tag to a digest, this is unsafe")
+
+	manifestDiffCmd.Flags().IntVarP(&manifestOpts.diffCtx, "context", "", 3, "Lines of context")
+	manifestDiffCmd.Flags().BoolVarP(&manifestOpts.diffFullCtx, "context-full", "", false, "Show all lines of context")
 
 	manifestDigestCmd.Flags().BoolVarP(&manifestOpts.list, "list", "", true, "Do not resolve platform from manifest list (enabled by default)")
 	manifestDigestCmd.Flags().StringVarP(&manifestOpts.platform, "platform", "p", "", "Specify platform (e.g. linux/amd64 or local)")
@@ -90,11 +107,13 @@ func init() {
 	manifestGetCmd.RegisterFlagCompletionFunc("format", completeArgNone)
 	manifestGetCmd.Flags().MarkHidden("list")
 
+	manifestPutCmd.Flags().BoolVarP(&manifestOpts.byDigest, "by-digest", "", false, "Push manifest by digest instead of tag")
 	manifestPutCmd.Flags().StringVarP(&manifestOpts.contentType, "content-type", "t", "", "Specify content-type (e.g. application/vnd.docker.distribution.manifest.v2+json)")
-	manifestPutCmd.MarkFlagRequired("content-type")
 	manifestPutCmd.RegisterFlagCompletionFunc("content-type", completeArgMediaTypeManifest)
+	manifestPutCmd.Flags().StringVarP(&manifestOpts.formatPut, "format", "", "", "Format output with go template syntax")
 
 	manifestCmd.AddCommand(manifestDeleteCmd)
+	manifestCmd.AddCommand(manifestDiffCmd)
 	manifestCmd.AddCommand(manifestDigestCmd)
 	manifestCmd.AddCommand(manifestGetCmd)
 	manifestCmd.AddCommand(manifestPutCmd)
@@ -211,6 +230,57 @@ func runManifestDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runManifestDiff(cmd *cobra.Command, args []string) error {
+	diffOpts := []diff.Opt{}
+	if manifestOpts.diffCtx > 0 {
+		diffOpts = append(diffOpts, diff.WithContext(manifestOpts.diffCtx, manifestOpts.diffCtx))
+	}
+	if manifestOpts.diffFullCtx {
+		diffOpts = append(diffOpts, diff.WithFullContext())
+	}
+	ctx := cmd.Context()
+	r1, err := ref.New(args[0])
+	if err != nil {
+		return err
+	}
+	r2, err := ref.New(args[1])
+	if err != nil {
+		return err
+	}
+
+	rc := newRegClient()
+
+	log.WithFields(logrus.Fields{
+		"ref1": r1.CommonName(),
+		"ref2": r2.CommonName(),
+	}).Debug("Manifest diff")
+
+	m1, err := rc.ManifestGet(ctx, r1)
+	if err != nil {
+		return err
+	}
+	m2, err := rc.ManifestGet(ctx, r2)
+	if err != nil {
+		return err
+	}
+
+	m1Json, err := json.MarshalIndent(m1, "", "  ")
+	if err != nil {
+		return err
+	}
+	m2Json, err := json.MarshalIndent(m2, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	mDiff := diff.Diff(strings.Split(string(m1Json), "\n"), strings.Split(string(m2Json), "\n"), diffOpts...)
+
+	_, err = fmt.Fprintln(os.Stdout, strings.Join(mDiff, "\n"))
+	return err
+	// TODO: support templating
+	// return template.Writer(os.Stdout, manifestOpts.format, mDiff)
+}
+
 func runManifestDigest(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	if manifestOpts.platform != "" && !flagChanged(cmd, "list") {
@@ -307,16 +377,36 @@ func runManifestPut(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	rcM, err := manifest.New(
+	opts := []manifest.Opts{
 		manifest.WithRef(r),
 		manifest.WithRaw(raw),
-		manifest.WithDesc(types.Descriptor{
+	}
+	if manifestOpts.contentType != "" {
+		opts = append(opts, manifest.WithDesc(types.Descriptor{
 			MediaType: manifestOpts.contentType,
-		}),
-	)
+		}))
+	}
+	rcM, err := manifest.New(opts...)
+	if err != nil {
+		return err
+	}
+	if manifestOpts.byDigest {
+		r.Tag = ""
+		r.Digest = rcM.GetDescriptor().Digest.String()
+	}
+
+	err = rc.ManifestPut(ctx, r, rcM)
 	if err != nil {
 		return err
 	}
 
-	return rc.ManifestPut(ctx, r, rcM)
+	result := struct {
+		Manifest manifest.Manifest
+	}{
+		Manifest: rcM,
+	}
+	if manifestOpts.byDigest && manifestOpts.formatPut == "" {
+		manifestOpts.formatPut = "{{ printf \"%s\\n\" .Manifest.GetDescriptor.Digest }}"
+	}
+	return template.Writer(os.Stdout, manifestOpts.formatPut, result)
 }
