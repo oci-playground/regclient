@@ -1,3 +1,7 @@
+# Archived
+
+Changes from the working group, and in the merged changes to OCI, have been merged to the upstream project.
+
 # OCI Playground
 
 [View diff](https://github.com/regclient/regclient/compare/main...oci-playground:main)
